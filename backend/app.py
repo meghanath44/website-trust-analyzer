@@ -7,6 +7,16 @@ import ssl
 import requests
 import dns.resolver
 from datetime import datetime
+COMMON_PORTS = {
+    80: "HTTP",
+    443: "HTTPS",
+    22: "SSH",
+    21: "FTP",
+    3306: "MySQL",
+    5432: "PostgreSQL",
+    8080: "HTTP-Alt",
+}
+
 
 app = Flask(__name__)
 CORS(app)
@@ -50,7 +60,66 @@ def get_domain_age(domain):
     
     except Exception:
         return 0
-    
+
+# Checks the website's SSL/TLS certificate by connecting to port 443.
+# Returns whether HTTPS is supported, if the certificate is valid,
+# how many days until expiry, and any errors during the handshake.
+
+def check_ssl_certificate(domain: str) -> dict:
+    """
+    Try to connect to domain:443 with TLS, read the certificate,
+    and return whether it's valid + days until expiry.
+    """
+    result = {
+        "has_https": False,
+        "is_valid": False,
+        "days_to_expiry": None,
+        "not_after": None,
+        "error": None,
+    }
+
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((domain, 443), timeout=5) as sock:
+            with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                cert = ssock.getpeercert()
+
+        result["has_https"] = True
+        not_after_str = cert.get("notAfter")
+        if not_after_str:
+            not_after = datetime.strptime(not_after_str, "%b %d %H:%M:%S %Y %Z")
+            result["not_after"] = not_after.isoformat()
+
+            delta = not_after - datetime.utcnow()
+            result["days_to_expiry"] = delta.days
+
+            if delta.days >= 0:
+                result["is_valid"] = True
+        else:
+            result["error"] = "Certificate has no notAfter field."
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
+
+# Scans a small list of common ports on the server (80, 443, 22, etc.)
+# Identifies which ports are open to detect exposed services or weak configurations.
+def scan_common_ports(domain: str) -> dict:
+    """
+    Check a small list of common ports and return which ones are open.
+    """
+    open_ports = []
+
+    for port, service in COMMON_PORTS.items():
+        try:
+            with socket.create_connection((domain, port), timeout=1):
+                open_ports.append({"port": port, "service": service})
+        except Exception:
+            continue
+
+    return {"open_ports": open_ports}
+
+
 def check_blacklist(domain):
     try:
         query=f"{domain}.dbl.spamhaus.org"
@@ -65,11 +134,6 @@ def check_blacklist(domain):
 def check_reputation():
     data=request.get_json()
     url=data.get("url")
-
-
-
-
-    
     domain=extract_domain(url)
     if not domain:
         return jsonify({"error":"Missing Domain"}),400
@@ -82,6 +146,18 @@ def check_reputation():
         score+=25
     elif age_days>30:
         score+=10
+    
+    ssl_info = check_ssl_certificate(domain)
+    result["ssl"] = ssl_info
+    if ssl_info["is_valid"]:
+        score += 25
+    elif ssl_info["has_https"]:
+        score += 10
+
+    ports_info = scan_common_ports(domain)
+    result["open_ports"] = ports_info["open_ports"]
+
+    result["score"] = score
     
     return jsonify(result)
 
