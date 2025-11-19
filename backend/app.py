@@ -7,6 +7,9 @@ import ssl
 import requests
 import dns.resolver
 from datetime import datetime
+from dotenv import load_dotenv
+import os
+
 COMMON_PORTS = {
     80: "HTTP",
     443: "HTTPS",
@@ -17,12 +20,14 @@ COMMON_PORTS = {
     8080: "HTTP-Alt",
 }
 
-
 app = Flask(__name__)
 CORS(app)
 
-VT_API_KEY = None
+load_dotenv()
+VT_API_KEY = os.getenv("VT_API_KEY")
 
+# Extracts domain from the given URL
+# Incase of exceptions the method returns empty string.
 def extract_domain(url:str)-> str:
     try:
         parsed = urlparse(url if url.startswith("http") else "http://" + url)
@@ -33,6 +38,8 @@ def extract_domain(url:str)-> str:
     except:
         return ""
 
+# Extracts domain age in terms of days.
+# Returns 0 if the creation_date is unknown or in-case of exception.
 def get_domain_age(domain):
     try:
         info=whois.whois(domain)
@@ -64,7 +71,6 @@ def get_domain_age(domain):
 # Checks the website's SSL/TLS certificate by connecting to port 443.
 # Returns whether HTTPS is supported, if the certificate is valid,
 # how many days until expiry, and any errors during the handshake.
-
 def check_ssl_certificate(domain: str) -> dict:
     """
     Try to connect to domain:443 with TLS, read the certificate,
@@ -119,7 +125,7 @@ def scan_common_ports(domain: str) -> dict:
 
     return {"open_ports": open_ports}
 
-
+# Checks whether the domain is in public blacklists.
 def check_blacklist(domain):
     try:
         query=f"{domain}.dbl.spamhaus.org"
@@ -129,6 +135,23 @@ def check_blacklist(domain):
         return False
     except Exception:
         return False
+
+# Returns the count of security engines flagged the given domain as malicious.
+# In case of failure returns the available property as false.
+def check_virustotal(domain):
+    if not VT_API_KEY:
+        return {"available": False, "reputation": 0, "malicious": 0}
+    try:
+        url = f"https://www.virustotal.com/api/v3/domains/{domain}"
+        headers = {"x-apikey":VT_API_KEY}
+        response = requests.get(url,headers = headers,timeout=10)
+        data = response.json()
+        malicious = data["data"]["attributes"]["last_analysis_stats"]["malicious"]
+        reputation = data["data"]["attributes"].get("reputation", 0)
+        return {"available": True, "reputation": reputation, "malicious": malicious}
+    except Exception as e:
+        return {"available": False, "reputation": 0, "malicious": 0}
+
 
 @app.route("/check_reputation",methods=["POST"])
 def check_reputation():
@@ -153,6 +176,21 @@ def check_reputation():
         score += 25
     elif ssl_info["has_https"]:
         score += 10
+
+    blacklisted = check_blacklist(domain)
+    result["blacklisted"] = blacklisted
+    if not blacklisted:
+        score+=25
+
+    print("VT API Key Loaded:", VT_API_KEY)
+    vt_data = check_virustotal(domain)
+    result["virus_total"]=vt_data
+    if vt_data["available"]:
+        if vt_data["malicious"] == 0:
+            score+=25
+        if vt_data["malicious"] < 3:
+            score+=10
+    
 
     ports_info = scan_common_ports(domain)
     result["open_ports"] = ports_info["open_ports"]
