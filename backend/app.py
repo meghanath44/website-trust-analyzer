@@ -10,14 +10,14 @@ from datetime import datetime
 from dotenv import load_dotenv
 import os
 
-COMMON_PORTS = {
-    80: "HTTP",
-    443: "HTTPS",
+RISKY_COMMON_PORTS = {
+    23: "Telnet",
+    25: "SMTP",
     22: "SSH",
     21: "FTP",
-    3306: "MySQL",
-    5432: "PostgreSQL",
-    8080: "HTTP-Alt",
+    110: "POP3",
+    139: "NetBIOS",
+    445: "SMB",
 }
 
 app = Flask(__name__)
@@ -108,7 +108,7 @@ def check_ssl_certificate(domain: str) -> dict:
 
     return result
 
-# Scans a small list of common ports on the server (80, 443, 22, etc.)
+# Scans a small list of risky common ports on the server (21, 23, 22, etc.)
 # Identifies which ports are open to detect exposed services or weak configurations.
 def scan_common_ports(domain: str) -> dict:
     """
@@ -116,7 +116,7 @@ def scan_common_ports(domain: str) -> dict:
     """
     open_ports = []
 
-    for port, service in COMMON_PORTS.items():
+    for port, service in RISKY_COMMON_PORTS.items():
         try:
             with socket.create_connection((domain, port), timeout=1):
                 open_ports.append({"port": port, "service": service})
@@ -166,36 +166,52 @@ def check_reputation():
     age_days=get_domain_age(domain)
     result["domain_age_days"]=age_days
     if age_days>180:
-        score+=25
+        score+=20
+        result["domain_age_days_severity"]="green"
     elif age_days>30:
         score+=10
+        result["domain_age_days_severity"]="yellow"
     
     ssl_info = check_ssl_certificate(domain)
     result["ssl"] = ssl_info
     if ssl_info["is_valid"]:
-        score += 25
+        score += 20
+        result["ssl_severity"]="green"
     elif ssl_info["has_https"]:
         score += 10
+        result["ssl_severity"]="yellow"
 
     blacklisted = check_blacklist(domain)
     result["blacklisted"] = blacklisted
     if not blacklisted:
-        score+=25
+        score+=20
+        result["blacklisted_severity"]="green"
 
     print("VT API Key Loaded:", VT_API_KEY)
     vt_data = check_virustotal(domain)
     result["virus_total"]=vt_data
     if vt_data["available"]:
         if vt_data["malicious"] == 0:
-            score+=25
-        if vt_data["malicious"] < 3:
+            score+=20
+            result["malicious_severity"]="green"
+        elif vt_data["malicious"] < 3:
             score+=10
+            result["malicious_severity"]="yellow"
     
-
     ports_info = scan_common_ports(domain)
     result["open_ports"] = ports_info["open_ports"]
+    if len(ports_info["open_ports"])==0:
+        score+=20
+        result["open_ports_severity"]="green"
+    elif len(ports_info["open_ports"])<=2:
+        score+=10
+        result["open_ports_severity"]="yellow"
 
     result["score"] = score
+    if score>=90:
+        result["score_severity"]="green"
+    elif score>50:
+        result["score_severity"]="yellow"
     
     return jsonify(result)
 
