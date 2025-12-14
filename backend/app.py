@@ -170,7 +170,7 @@ def check_reputation():
         result["domain_age_days_severity"]="green"
     elif age_days>30:
         score+=10
-        result["domain_age_days_severity"]="yellow"
+        result["domain_age_days_severity"]="orange"
     
     ssl_info = check_ssl_certificate(domain)
     result["ssl"] = ssl_info
@@ -179,7 +179,7 @@ def check_reputation():
         result["ssl_severity"]="green"
     elif ssl_info["has_https"]:
         score += 10
-        result["ssl_severity"]="yellow"
+        result["ssl_severity"]="orange"
 
     blacklisted = check_blacklist(domain)
     result["blacklisted"] = blacklisted
@@ -196,7 +196,7 @@ def check_reputation():
             result["malicious_severity"]="green"
         elif vt_data["malicious"] < 3:
             score+=10
-            result["malicious_severity"]="yellow"
+            result["malicious_severity"]="orange"
     
     ports_info = scan_common_ports(domain)
     result["open_ports"] = ports_info["open_ports"]
@@ -205,13 +205,14 @@ def check_reputation():
         result["open_ports_severity"]="green"
     elif len(ports_info["open_ports"])<=2:
         score+=10
-        result["open_ports_severity"]="yellow"
+        result["open_ports_severity"]="orange"
+
 
     result["score"] = score
     if score>=90:
         result["score_severity"]="green"
     elif score>50:
-        result["score_severity"]="yellow"
+        result["score_severity"]="orange"
     
     return jsonify(result)
 
