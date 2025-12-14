@@ -1,11 +1,9 @@
 import React,{ useState } from "react";
 import Modal from "react-modal";
-import { useNavigate } from "react-router-dom";
 
 function Home (){
 
     Modal.setAppElement("#root");
-    const navigate = useNavigate();
     const [url, setUrl] = useState("");
     const [isInvalidUrl, setIsInvalidUrl] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -23,7 +21,6 @@ function Home (){
                 body:JSON.stringify({'url':url}),
             });
             const data= await response.json();
-            console.log(data);
             setData(data);
             setLoading(false);
             setModalOpen(true);
@@ -35,12 +32,6 @@ function Home (){
         
     }
 
-    const onURLChange = (e:React.ChangeEvent<HTMLInputElement>) => {
-        setIsInvalidUrl(false);
-        setUrl(e.currentTarget.value);
-    }
-
-
     return (
         <div>
             {!loading && (<>
@@ -50,7 +41,8 @@ function Home (){
                         type="text"
                         placeholder="Enter website URL"
                         value={url}
-                        onChange={(e)=>onURLChange(e)}>
+                        onClick={()=>{setIsInvalidUrl(false)}}
+                        onChange={(e)=>{setUrl(e.currentTarget.value)}}>
                     </input>
                     <button type="submit">Check</button>
                 </form>
